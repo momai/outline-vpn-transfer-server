@@ -4,7 +4,7 @@
 
 #### Пример вывода:
 
-{'apiUrl':'https://1.1.1.1:11111/DFGKkVMKQ3-5FGDFLM','certSha256':'SDFGKDLFMGERSDFKMSDKLFMW'}
+```{'apiUrl':'https://1.1.1.1:11111/DFGKkVMKQ3-5FGDFLM','certSha256':'SDFGKDLFMGERSDFKMSDKLFMW'}```
 
 
 
@@ -23,29 +23,29 @@
 1. Замените в `vars.yml` old_server_ip на необходимый
 2. Закомментируйте первый task в `move_outline.yml`:
 
-
+```
 - name: Get old server IP address
   shell: dig +short {{ old_server }}
   changed_when: false
   register: old_server_ip
-
+```
 3. Выполните
-
+```
 terraform init
 terraform apply
 ansible-playbook move_outline.yml --extra-vars "new_server_ip=$(terraform output -raw new_server_ip)"
-
+```
 
 После выполнения верните значения в первоначальный вид. При последующем использовании просто выполняйте 3 этап.
 
 ### II. При отсутствии сервера outline
 
 1. Выполните
-
+```
 terraform init
 terraform apply
 ansible-playbook new_move_outline.yml --extra-vars "new_server_ip=$(terraform output -raw new_server_ip)"
-
+```
 
 В дальнейшем используйте `move_outline.yml` для переноса сервера.
 
@@ -57,9 +57,9 @@ ansible-playbook new_move_outline.yml --extra-vars "new_server_ip=$(terraform ou
 2. Выполните `terraform apply`
    **ВНИМАНИЕ:** Необходимо изменить имя сервера в `new_move_outline.tf`
 3. Выполните
-
+```
 ansible-playbook move_outline.yml --extra-vars "new_server_ip=$(terraform output -raw new_server_ip)"
-
+```
 
 4. Получите вывод после выполнения и добавьте в Outline Manager. Убедитесь в корректном переносе.
 5. Зайдите в консоль hetzner и удалите старый сервер
