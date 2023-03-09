@@ -1,0 +1,111 @@
+- name: Move Outline server
+  hosts: localhost
+  remote_user: root
+
+  vars_files:
+    - vars.yaml
+  tasks:
+
+    - name: Get old server IP address
+      shell: dig +short {{ old_server }}
+      changed_when: false
+      register: old_server_ip
+
+    - name: Print old server IP
+      debug:
+        var: old_server_ip
+
+    - name: Print new server IP
+      debug:
+        var: new_server_ip
+  
+    - name: Copy files from Docker container
+      docker_container:
+        name: shadowbox
+        state: started
+      register: container_info
+      delegate_to: "{{ old_server_ip.stdout }}"
+  
+    - name: Fetch multiple files from container
+      fetch:
+        src: "{{ item.src }}"
+        dest: "{{ item.dest }}"
+        flat: yes
+      with_items:
+        - { src: "/opt/outline/persisted-state/shadowbox_server_config.json", dest: "outline/shadowbox_server_config.json" }
+        - { src: "/opt/outline/persisted-state/shadowbox_config.json", dest: "outline/shadowbox_config.json" }
+        - { src: "/opt/outline/persisted-state/outline-ss-server/config.yml", dest: "outline/outline-ss-server/config.yml" }
+        - { src: "/opt/outline/persisted-state/shadowbox-selfsigned.key", dest: "outline/shadowbox-selfsigned.key" }
+        - { src: "/opt/outline/persisted-state/shadowbox-selfsigned.crt", dest: "outline/shadowbox-selfsigned.crt" }
+      delegate_to: "{{ old_server_ip.stdout }}"
+  
+    - name: install pip3, docker
+      apt:
+        name: python3-pip, docker.io
+        update_cache: yes
+      delegate_to: "{{ new_server_ip }}"
+  
+    # install the Docker SDK for Python library
+    - name: install Docker SDK for Python
+      pip:
+        name: docker, docker-compose
+      delegate_to: "{{ new_server_ip }}"
+  
+    - name: Install Outline server on new server
+      shell: |
+        AUTO_INSTALL=y bash -c "$(wget -qO- https://raw.githubusercontent.com/Jigsaw-Code/outline-server/master/src/server_manager/install_scripts/install_server.sh)"
+      become: true
+      delegate_to: "{{ new_server_ip }}"
+  
+    - name: Copy outline directory to new server
+      copy:
+        src: /root/outline/
+        dest: /root/outline/
+      become: true
+      delegate_to: "{{ new_server_ip }}"
+  
+    - name: configure outline
+      shell: |
+        docker cp outline/shadowbox_server_config.json shadowbox:/opt/outline/persisted-state
+        docker cp outline/shadowbox_config.json shadowbox:/opt/outline/persisted-state
+        docker cp outline/outline-ss-server/config.yml shadowbox:/opt/outline/persisted-state/outline-ss-server/
+        docker cp outline/shadowbox-selfsigned.key shadowbox:/opt/outline/persisted-state
+        docker cp outline/shadowbox-selfsigned.crt shadowbox:/opt/outline/persisted-state
+      become: true
+      delegate_to: "{{ new_server_ip }}"
+  
+    - name: restart outline
+      shell: docker restart shadowbox
+      become: true
+      delegate_to: "{{ new_server_ip }}"
+
+    - name: Update DNS record
+      community.dns.hetzner_dns_record_set:
+        api_token: "{{ hetzner_token }}"
+        state: present
+        zone_name: "{{ zone }}"
+        type: A  # IPv4 addresses
+        # Either specify a record name:
+        record: "{{ subdomain }}.{{ zone }}"
+        # Or a record prefix ('' is the zone itself):
+#        prefix: test
+        value: "{{ new_server_ip }}"
+        ttl: 300
+
+    - name: Get server URL from Docker logs
+      shell: docker logs shadowbox | grep -oP "https://\[\S+\]:\d+\/\S+" | sed "s/\[::\]/{{ new_server_ip }}/g" | awk '{print $1}' | sort | uniq
+      register: server_url
+      delegate_to: "{{ new_server_ip }}"
+
+    - name: Get server URL API from Docker logs
+      shell: "openssl x509 -noout -fingerprint -sha256 -inform pem -in outline/shadowbox-selfsigned.crt | tr -d : | sed 's/SHA256 Fingerprint=//'"
+      register: server_api_url
+      delegate_to: "{{ new_server_ip }}"
+
+    - name: Format server URLs
+      set_fact:
+        server_urls: '{{ {"apiUrl": server_url.stdout, "certSha256": server_api_url.stdout} | to_json | replace(" ", "") | replace("\n", "") }}'
+
+    - name: Print server URLs
+      debug:
+        msg: "{{ server_urls }}"

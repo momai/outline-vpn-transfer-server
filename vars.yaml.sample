@@ -1,0 +1,7 @@
+#dns old server
+old_server: "vpn.momai.dev"
+new_server_ip: "{{ new_server_ip | default('') }}"
+# dns config
+hetzner_token: ""
+zone: "momai.dev"
+subdomain: "vpn"

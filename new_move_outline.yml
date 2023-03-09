@@ -1,0 +1,70 @@
+- name: Move Outline server
+  hosts: localhost
+  remote_user: root
+
+  vars_files:
+    - vars.yaml
+  tasks:
+
+    - name: Print new server IP
+      debug:
+        var: new_server_ip
+  
+    - name: install pip3, docker
+      apt:
+        name: python3-pip, docker.io
+        update_cache: yes
+      delegate_to: "{{ new_server_ip }}"
+  
+    # install the Docker SDK for Python library
+    - name: install Docker SDK for Python
+      pip:
+        name: docker, docker-compose
+      delegate_to: "{{ new_server_ip }}"
+  
+    - name: Install Outline server on new server
+      shell: |
+        AUTO_INSTALL=y bash -c "$(wget -qO- https://raw.githubusercontent.com/Jigsaw-Code/outline-server/master/src/server_manager/install_scripts/install_server.sh)"
+      become: true
+      delegate_to: "{{ new_server_ip }}"
+  
+    - name: configure outline
+      shell: |
+        docker cp shadowbox:/opt/outline/persisted-state/shadowbox_server_config.json outline/
+        docker cp shadowbox:/opt/outline/persisted-state/shadowbox_config.json outline/
+        docker cp shadowbox:/opt/outline/persisted-state/outline-ss-server/config.yml outline/outline-ss-server/
+        docker cp shadowbox:/opt/outline/persisted-state/shadowbox-selfsigned.key outline/
+        docker cp shadowbox:/opt/outline/persisted-state/shadowbox-selfsigned.crt outline/
+      become: true
+      delegate_to: "{{ new_server_ip }}"
+  
+    - name: Update DNS record
+      community.dns.hetzner_dns_record_set:
+        api_token: "{{ hetzner_token }}"
+        state: present
+        zone_name: "{{ zone }}"
+        type: A  # IPv4 addresses
+        # Either specify a record name:
+        record: "{{ subdomain }}.{{ zone }}"
+        # Or a record prefix ('' is the zone itself):
+#        prefix: test
+        value: "{{ new_server_ip }}"
+        ttl: 300
+
+    - name: Get server URL from Docker logs
+      shell: docker logs shadowbox | grep -oP "https://\[\S+\]:\d+\/\S+" | sed "s/\[::\]/{{ new_server_ip }}/g" | awk '{print $1}' | sort | uniq
+      register: server_url
+      delegate_to: "{{ new_server_ip }}"
+
+    - name: Get server URL API from Docker logs
+      shell: "openssl x509 -noout -fingerprint -sha256 -inform pem -in outline/shadowbox-selfsigned.crt | tr -d : | sed 's/SHA256 Fingerprint=//'"
+      register: server_api_url
+      delegate_to: "{{ new_server_ip }}"
+
+    - name: Format server URLs
+      set_fact:
+        server_urls: '{{ {"apiUrl": server_url.stdout, "certSha256": server_api_url.stdout} | to_json | replace(" ", "") | replace("\n", "") }}'
+
+    - name: Print server URLs
+      debug:
+        msg: "{{ server_urls }}"
