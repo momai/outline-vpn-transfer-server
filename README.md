@@ -55,6 +55,7 @@ ansible-playbook new_move_outline.yml --extra-vars "new_server_ip=$(terraform ou
 
 1. Удалите файл `.tfstate`
 2. Выполните `terraform apply`
+
    **ВНИМАНИЕ:** Необходимо изменить имя сервера в `new_move_outline.tf`
 3. Выполните
 ```
